@@ -1,91 +1,53 @@
-# 영화 예매 반자동 스크립트
+# 롯데시네마 예매 오픈 감시
 
-로그인된 내 계정으로 **회차 오픈 대기 → 회차 클릭 → 인원·좌석 선택 → 결제창**까지 자동 진행하고,
-결제창에 도착하면 알림(비프음 + 선택적으로 텔레그램)을 보낸 뒤 멈춥니다. **결제는 직접** 합니다.
+롯데시네마 공개 상영시간표를 주기적으로 확인하다가 조건에 맞는 회차가 열리면 알려줍니다.
+**알림만 보내고 예매는 직접** 합니다. Python 3.9+ 표준 라이브러리만 사용(설치할 것 없음).
 
-- 캡차·대기열·본인인증은 건드리지 않습니다. 막히면 알림을 보내고 브라우저를 열어둡니다.
-- 새로고침 간격은 최소 10초로 강제됩니다(차단 방지).
-- 개인용·일회성 용도입니다. 재판매 목적 구매는 공연법 위반입니다.
+기본 조건: 부산본점 · 5관 · 어벤져스: 둠스데이 · 2026-12-16 · 12:00 이후 · 잔여 3석 이상 · 60초 간격
 
-## 1. 설치 (내 PC에서)
+## 1. 먼저 동작 확인 (꼭!)
 
-```bash
-pip install -r requirements.txt
-python -m playwright install chromium
-```
-
-## 2. 로그인 세션 저장
+지점코드·상영관 이름은 공개 자료 기준 추정이라, 오늘/내일 날짜로 실제 조회되는지 확인하세요.
 
 ```bash
-cp config.example.yaml config.yaml
-python movie_booker.py login --config config.yaml
+python watch.py --list --date 2026-11-24 --movie ""
 ```
-뜬 브라우저에서 직접 로그인하고 터미널에서 Enter → `auth.json` 생성 (절대 공유·커밋 금지).
+회차 목록과 `ScreenID`가 나오면 정상입니다. "회차 없음"이면 `--cinema-id-raw "1|0101|2004"` 등으로 바꿔보세요.
 
-## 3. 셀렉터 따기 (가장 중요)
-
-극장 사이트마다 버튼 구조가 다르니, 실제 사이트에서 직접 클릭하며 셀렉터를 기록합니다.
+## 2. 감시 시작
 
 ```bash
-python -m playwright codegen --load-storage=auth.json "예매페이지URL"
+python watch.py
 ```
-회차 → 인원 → 좌석 → 결제하기를 직접 눌러보면 오른쪽 창에 `page.click("...")` 코드가 찍힙니다.
-그 셀렉터들을 `config.yaml`의 `steps`에 옮기면 됩니다. 좌석 배치도가 iframe 안에 있으면 `frame:`을 지정하세요.
+- 조건에 맞는 회차가 처음 보이면 비프음 + 알림 출력 후 종료 (`--keep`이면 새 회차마다 계속 알림)
+- PC 절전 모드를 꺼두세요. 꺼지면 감시도 멈춥니다.
 
-## 4. 실행
+## 텔레그램 알림 (선택, 폰으로 받기)
 
+1. 텔레그램에서 `@BotFather` → `/newbot` → 토큰 발급
+2. 만든 봇에게 아무 메시지 전송 → `https://api.telegram.org/bot<토큰>/getUpdates`에서 `chat.id` 확인
+3. 실행 전에:
 ```bash
-python movie_booker.py run --config config.yaml
+export TELEGRAM_BOT_TOKEN=토큰 TELEGRAM_CHAT_ID=채팅ID
 ```
 
-텔레그램 알림(선택):
-```bash
-export TELEGRAM_BOT_TOKEN=...   TELEGRAM_CHAT_ID=...
-```
+## 옵션
 
-## step 종류
-
-| action | 필드 | 설명 |
+| 옵션 | 기본값 | 설명 |
 |---|---|---|
-| `click` | `selector` | 클릭 |
-| `click_text` | `text`, `exact` | 텍스트로 찾아 클릭 |
-| `fill` / `select` | `selector`, `value` | 입력 / 드롭다운 |
-| `wait` | `selector` | 나타날 때까지 대기 |
-| `sleep` | `seconds` | 고정 대기 |
-| `select_seats` | `seats`(우선순위 목록), `count`, `unavailable_class` | 가능한 좌석만 순서대로 선택 |
+| `--date` | 2026-12-16 | 상영일 |
+| `--cinema` | 2004 | 지점 번호 (부산본점) |
+| `--screen` | 5관 | 상영관 이름 일부 또는 ScreenID, `""`면 전체 |
+| `--movie` | 어벤져스: 둠스데이 | 영화명 일부 (공백·콜론 무시) |
+| `--after` | 12:00 | 이 시각 이후 시작 회차만 |
+| `--min-seats` | 3 | 잔여석 최소 |
+| `--interval` | 60 | 확인 간격(초), 최소 20 |
+| `--once` / `--keep` / `--list` | | 1회 확인 / 계속 알림 / 전체 회차 출력 |
 
-모든 step에 `frame`, `timeout`(ms) 지정 가능.
+## 알림 오면 할 일
+미리 로그인·결제수단 등록 → 회차 선택 → 좌석 **E6-8 → E5-7 → E7-9 → D/F열 6-8** 순으로 노리기 → 결제.
 
 ## 테스트
-
-`tests/mock/`에 모의 예매 사이트가 있습니다.
 ```bash
-(cd tests/mock && python -m http.server 8765 &)
-python movie_booker.py run --config tests/mock_config.yaml --headless
+(python tests/mock_api.py &) ; python watch.py --api-url http://127.0.0.1:8767/ --interval 20
 ```
-
----
-
-# 롯데시네마 전용: `lotte_booker.py`
-
-부산본점 5관 · 어벤져스: 둠스데이 · 2026-12-16 12:00 이후 기준으로 설정된 예시: `lotte.example.yaml`
-
-1. **자동 로그인**: 환경변수 `LOTTE_ID`, `LOTTE_PW`로 로그인(파일에 저장 안 함). 캡차 등으로 실패하면 알림 후 직접 로그인할 때까지 대기.
-2. **오픈 감시**: 공개 상영시간표 API(`GetPlaySequence`)로 1분마다 확인 → 5관·영화명·12:00 이후·잔여석 ≥ 인원 조건의 **가장 이른 회차**를 찾으면 진행.
-3. **예매 화면**: 지역 → 지점 → 영화 → 날짜 → 감지된 회차 시간(`{time}` 자동 치환) → 인원.
-4. **좌석**: D–F열 5–9번 안에서 연석 블록을 선호도순으로 시도 (`--dry-seats`로 순서 확인)
-   `E6-8 → E5-7 → E7-9 → D6-8 → F6-8 → …`
-5. **결제창 도착 → 알림 후 멈춤.** 결제는 직접.
-
-```bash
-cp lotte.example.yaml lotte.yaml
-python -m playwright codegen https://www.lottecinema.co.kr/NLCHS/   # TODO 셀렉터 확인
-export LOTTE_ID=내아이디 LOTTE_PW=내비번
-python lotte_booker.py --config lotte.yaml
-```
-
-> `lotte.example.yaml`의 `TODO` 셀렉터(로그인 폼, 인원 버튼, 좌석 요소, 매진 클래스, 결제창 표시)는
-> 실제 사이트에서 검증되지 않았습니다. codegen으로 확인해 채워야 합니다.
-
-모의 서버 테스트: `(python tests/lotte_mock/server.py &)` 후
-`LOTTE_ID=t LOTTE_PW=t python lotte_booker.py --config tests/lotte_mock_config.yaml --headless`
