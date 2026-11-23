@@ -63,3 +63,29 @@ export TELEGRAM_BOT_TOKEN=...   TELEGRAM_CHAT_ID=...
 (cd tests/mock && python -m http.server 8765 &)
 python movie_booker.py run --config tests/mock_config.yaml --headless
 ```
+
+---
+
+# 롯데시네마 전용: `lotte_booker.py`
+
+부산본점 5관 · 어벤져스: 둠스데이 · 2026-12-16 12:00 이후 기준으로 설정된 예시: `lotte.example.yaml`
+
+1. **자동 로그인**: 환경변수 `LOTTE_ID`, `LOTTE_PW`로 로그인(파일에 저장 안 함). 캡차 등으로 실패하면 알림 후 직접 로그인할 때까지 대기.
+2. **오픈 감시**: 공개 상영시간표 API(`GetPlaySequence`)로 1분마다 확인 → 5관·영화명·12:00 이후·잔여석 ≥ 인원 조건의 **가장 이른 회차**를 찾으면 진행.
+3. **예매 화면**: 지역 → 지점 → 영화 → 날짜 → 감지된 회차 시간(`{time}` 자동 치환) → 인원.
+4. **좌석**: D–F열 5–9번 안에서 연석 블록을 선호도순으로 시도 (`--dry-seats`로 순서 확인)
+   `E6-8 → E5-7 → E7-9 → D6-8 → F6-8 → …`
+5. **결제창 도착 → 알림 후 멈춤.** 결제는 직접.
+
+```bash
+cp lotte.example.yaml lotte.yaml
+python -m playwright codegen https://www.lottecinema.co.kr/NLCHS/   # TODO 셀렉터 확인
+export LOTTE_ID=내아이디 LOTTE_PW=내비번
+python lotte_booker.py --config lotte.yaml
+```
+
+> `lotte.example.yaml`의 `TODO` 셀렉터(로그인 폼, 인원 버튼, 좌석 요소, 매진 클래스, 결제창 표시)는
+> 실제 사이트에서 검증되지 않았습니다. codegen으로 확인해 채워야 합니다.
+
+모의 서버 테스트: `(python tests/lotte_mock/server.py &)` 후
+`LOTTE_ID=t LOTTE_PW=t python lotte_booker.py --config tests/lotte_mock_config.yaml --headless`

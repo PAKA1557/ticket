@@ -1,0 +1,48 @@
+# 롯데시네마 부산본점 5관 · 어벤져스: 둠스데이 · 2026-12-16 12:00 이후
+# cp lotte.example.yaml lotte.yaml  후 TODO 표시된 셀렉터를 codegen으로 확인해 채우세요.
+
+home_url: "https://www.lottecinema.co.kr/NLCHS/"
+ticketing_url: "https://www.lottecinema.co.kr/NLCHS/Ticketing"
+storage_state: auth.json
+slow_mo_ms: 80
+
+login:
+  url: "https://www.lottecinema.co.kr/NLCHS/Member/Login"
+  id_selector: "#userId"                 # TODO codegen으로 확인
+  pw_selector: "#userPassword"           # TODO
+  submit_selector: "text=로그인 >> nth=-1" # TODO
+  logged_in_selector: "text=로그아웃"     # 로그인 후에만 보이는 요소
+
+watch:                                   # 공개 상영시간표 API로 회차 오픈 감시
+  date: "2026-12-16"
+  cinema_id: "1|0101|2004"               # 부산본점(2004). 안 잡히면 "1|101|2004" 로 바꿔보세요
+  screen_id: "200405"                    # 5관 (부산본점 8관=200408 패턴 기준)
+  movie: "어벤져스: 둠스데이"              # 공백·콜론 무시하고 부분일치
+  time_after: "12:00"                    # 12시 이후 회차 중 가장 이른 것
+  min_seats: 3                           # 잔여석이 이보다 적은 회차는 건너뜀
+  interval_sec: 60                       # 최소 20초로 강제
+
+steps:                                   # 예매 화면에서 영화·지점·회차·인원 클릭 (TODO 전부 codegen 확인)
+  - {name: 지역 부산, action: click_text, text: "부산"}
+  - {name: 지점 부산본점, action: click_text, text: "부산본점", exact: true}
+  - {name: 영화 선택, action: click_text, text: "어벤져스"}
+  - {name: 날짜 16일, action: click_text, text: "16", exact: true}
+  - {name: 회차 클릭, action: click_text, text: "{time}", exact: true}   # 감지된 시작시간 자동 치환
+  - {name: 인원 성인 3, action: click, selector: "TODO 성인 +버튼 또는 3 버튼"}
+
+seats:
+  map_selector: "TODO 좌석 배치도 컨테이너"
+  seat_selector: "TODO 예: a[title*='{label}']"   # {row}=E {col}=7 {label}=E7 로 치환
+  unavailable_class: "TODO 매진좌석 클래스"
+  # frame: "iframe#..."                  # 배치도가 iframe 안이면
+  count: 3
+  rows: "DEF"
+  cols: [5, 9]
+  prefer_row: "E"
+  prefer_cols: [6, 7, 8]
+  allow_split: false                     # true면 연석 없을 때 떨어진 자리라도 선택
+
+after_seat_steps:
+  - {name: 결제하기, action: click_text, text: "결제하기"}   # TODO 실제 버튼 문구 확인
+
+payment_ready_selector: "text=결제수단"   # TODO 결제창에만 있는 요소
