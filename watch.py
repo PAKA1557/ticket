@@ -1,7 +1,7 @@
 """롯데시네마 예매 오픈 감시 (알림 전용, 표준 라이브러리만 사용).
 
 공개 상영시간표 조회(GetPlaySequence)를 주기적으로 확인해서, 조건에 맞는 회차가
-처음 나타나면 알림(터미널 비프음 + 선택적으로 텔레그램)을 보냅니다. 예매는 직접 합니다.
+처음 나타나면 PC(화면 알림+소리)와 폰(ntfy 앱 / 텔레그램)으로 알립니다. 예매는 직접 합니다.
 
 기본값: 부산본점 · 5관 · 어벤져스: 둠스데이 · 2026-12-16 · 12:00 이후 · 잔여 3석 이상
 
@@ -9,7 +9,9 @@
   python watch.py                              # 감시 시작
   python watch.py --once                       # 한 번만 확인하고 종료
 
-텔레그램 알림(선택): TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID 환경변수
+  python watch.py --test-notify                # PC·폰 알림 시험
+
+폰 알림: NTFY_TOPIC (권장) 또는 TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID 환경변수
 """
 
 import argparse
@@ -34,16 +36,120 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%m-%d %H:%M:%S')}] {msg}", flush=True)
 
 
-def notify(msg: str) -> None:
-    print(f"\a\n{'=' * 50}\n{msg}\n{'=' * 50}", flush=True)
+# ───────────────────────── 알림 ─────────────────────────
+# PC: OS 기본 알림 + 소리 / 폰: ntfy 앱(권장, 가입 불필요) 또는 텔레그램
+# 한 채널이 실패해도 나머지는 계속 보냄.
+
+def _run(cmd):
+    import subprocess
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+
+
+def _ps_quote(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
+
+
+def desktop_notify(title: str, body: str) -> None:
+    """PC 화면 알림 + 소리. 외부 패키지 없이 OS 기본 기능만 사용."""
+    import platform
+    import threading
+    system = platform.system()
+    if system == "Windows":
+        # 토스트 알림(우측 하단) — Windows PowerShell 기본 API
+        ps = (
+            "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null;"
+            "$t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+            "$x=$t.GetElementsByTagName('text');"
+            f"$x.Item(0).AppendChild($t.CreateTextNode({_ps_quote(title)})) > $null;"
+            f"$x.Item(1).AppendChild($t.CreateTextNode({_ps_quote(body)})) > $null;"
+            "$n=[Windows.UI.Notifications.ToastNotification]::new($t);"
+            "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+            "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show($n)"
+        )
+        try:
+            _run(["powershell", "-NoProfile", "-Command", ps])
+        except Exception as e:
+            log(f"윈도우 알림 실패: {e}")
+        try:
+            import winsound
+            for _ in range(5):
+                winsound.Beep(1200, 300)
+                time.sleep(0.15)
+        except Exception:
+            pass
+        # 토스트를 놓쳐도 보이도록 팝업창도 띄움(감시는 멈추지 않게 별도 스레드)
+        try:
+            import ctypes
+            threading.Thread(
+                target=lambda: ctypes.windll.user32.MessageBoxW(0, body, title, 0x40 | 0x40000),
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+    elif system == "Darwin":
+        esc = lambda x: x.replace("\\", "\\\\").replace('"', '\\"')
+        try:
+            _run(["osascript", "-e",
+                  f'display notification "{esc(body)}" with title "{esc(title)}" sound name "Glass"'])
+            for _ in range(3):
+                _run(["afplay", "/System/Library/Sounds/Glass.aiff"])
+        except Exception as e:
+            log(f"맥 알림 실패: {e}")
+    else:
+        try:
+            _run(["notify-send", "-u", "critical", title, body])
+        except Exception:
+            pass
+
+
+def ntfy_notify(topic: str, title: str, body: str, server: str = "https://ntfy.sh") -> None:
+    # JSON 방식: 한글 제목도 깨지지 않음
+    payload = {
+        "topic": topic, "title": title, "message": body,
+        "priority": 5,                     # urgent — 폰에서 강하게 울림
+        "tags": ["movie_camera"],
+        "click": "https://www.lottecinema.co.kr/NLCHS/Ticketing",
+    }
+    req = urllib.request.Request(
+        server.rstrip("/"), data=json.dumps(payload).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "movie-open-watcher"},
+    )
+    with urllib.request.urlopen(req, timeout=10):
+        pass
+
+
+def telegram_notify(token: str, chat: str, text: str) -> None:
+    data = urllib.parse.urlencode({"chat_id": chat, "text": text}).encode()
+    with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=10):
+        pass
+
+
+def notify(msg: str, title: str = "롯데시네마 예매 오픈!") -> None:
+    print(f"\a\n{'=' * 50}\n{title}\n{msg}\n{'=' * 50}", flush=True)
+    sent = ["터미널"]
+
+    desktop_notify(title, msg)
+    sent.append("PC")
+
+    topic = os.environ.get("NTFY_TOPIC")
+    if topic:
+        try:
+            ntfy_notify(topic, title, msg, os.environ.get("NTFY_SERVER", "https://ntfy.sh"))
+            sent.append("폰(ntfy)")
+        except Exception as e:
+            log(f"ntfy 전송 실패: {e}")
+
     token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-    if not (token and chat):
-        return
-    try:
-        data = urllib.parse.urlencode({"chat_id": chat, "text": msg}).encode()
-        urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data=data, timeout=10)
-    except Exception as e:
-        log(f"텔레그램 전송 실패: {e}")
+    if token and chat:
+        try:
+            telegram_notify(token, chat, f"{title}\n{msg}")
+            sent.append("텔레그램")
+        except Exception as e:
+            log(f"텔레그램 전송 실패: {e}")
+
+    if len(sent) == 2:
+        log("폰 알림 미설정 — NTFY_TOPIC 환경변수를 설정하면 폰으로도 받습니다 (README 참고)")
+    log("알림 전송: " + ", ".join(sent))
 
 
 def fetch(api_url, date, cinema_id):
@@ -110,9 +216,14 @@ def main() -> int:
     ap.add_argument("--once", action="store_true", help="한 번만 확인")
     ap.add_argument("--keep", action="store_true", help="첫 알림 후에도 새 회차가 생길 때마다 계속 알림")
     ap.add_argument("--list", action="store_true", help="조건 무시하고 그 날짜 전체 회차 출력 후 종료")
+    ap.add_argument("--test-notify", action="store_true", help="PC·폰 알림이 오는지 시험 발송")
     ap.add_argument("--api-url", default=API_URL, help=argparse.SUPPRESS)  # 테스트용
     a = ap.parse_args()
     a.interval = max(a.interval, MIN_INTERVAL)
+
+    if a.test_notify:
+        notify("테스트 알림입니다. 이게 보이면 정상!", title="예매 감시 알림 테스트")
+        return 0
 
     w = Watcher(a)
 
@@ -138,8 +249,7 @@ def main() -> int:
             new = [it for it in hits if f"{it.get('ScreenID')}|{it.get('StartTime')}" not in seen]
             if new:
                 seen.update(f"{it.get('ScreenID')}|{it.get('StartTime')}" for it in new)
-                notify("🎬 롯데시네마 예매 오픈!\n" + "\n".join(describe(it) for it in new)
-                       + "\n→ 지금 바로 예매하세요")
+                notify("\n".join(describe(it) for it in new) + "\n→ 지금 바로 예매하세요")
                 if not a.keep:
                     return 0
             else:
