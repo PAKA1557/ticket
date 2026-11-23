@@ -12,8 +12,6 @@
 텔레그램 알림(선택): TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID 환경변수
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import os
@@ -48,7 +46,7 @@ def notify(msg: str) -> None:
         log(f"텔레그램 전송 실패: {e}")
 
 
-def fetch(api_url: str, date: str, cinema_id: str) -> list[dict]:
+def fetch(api_url, date, cinema_id):
     params = {
         "MethodName": "GetPlaySequence", "channelType": "HO", "osType": "W", "osVersion": UA,
         "playDate": date, "cinemaID": cinema_id, "representationMovieCode": "",
@@ -65,7 +63,7 @@ class Watcher:
         self.a = a
         self.cinema_id = a.cinema_id_raw  # 직접 지정했으면 그대로 사용
 
-    def items(self) -> list[dict]:
+    def items(self):
         if self.cinema_id:
             return fetch(self.a.api_url, self.a.date, self.cinema_id)
         # 지점코드 형식 자동 탐색: 결과가 나오는 첫 형식을 고정
@@ -130,7 +128,7 @@ def main() -> int:
 
     log(f"감시 시작: {a.date} 지점 {a.cinema} {a.screen or '전체관'} '{a.movie}' "
         f"{a.after} 이후 잔여 {a.min_seats}석↑ · {a.interval:.0f}초 간격")
-    seen: set[str] = set()
+    seen = set()
     tries = 0
     while True:
         tries += 1
