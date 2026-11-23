@@ -1,0 +1,14 @@
+start_url: "http://127.0.0.1:8765/index.html"
+storage_state: none.json
+wait_open: {selector: "#t1930", interval_sec: 10}
+steps:
+  - {name: 회차 선택, action: click, selector: "#t1930"}
+  - {name: 성인 2명, action: click, selector: "#adult >> text=2"}
+  - name: 좌석
+    action: select_seats
+    selector: ".seat-map"
+    count: 2
+    unavailable_class: sold
+    seats: ["[data-seat='H10']", "[data-seat='H11']", "[data-seat='H12']", "[data-seat='G10']", "[data-seat='G11']"]
+  - {name: 결제하기, action: click, selector: "#pay"}
+payment_ready_selector: "text=결제수단"

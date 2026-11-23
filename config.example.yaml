@@ -1,0 +1,38 @@
+# 복사해서 config.yaml로 저장 후 수정하세요:  cp config.example.yaml config.yaml
+# 셀렉터는 `playwright codegen`으로 실제 사이트에서 직접 클릭하며 뽑는 게 가장 정확합니다 (README 참고).
+
+login_url: "https://극장사이트/로그인페이지"
+start_url: "https://극장사이트/예매-또는-상영시간표-페이지"
+storage_state: auth.json      # login 명령으로 생성됨
+slow_mo_ms: 100               # 클릭 사이 지연(ms). 너무 빠르면 사이트가 따라오지 못함
+
+# (선택) 회차가 아직 안 열렸으면, 이 셀렉터가 보일 때까지 새로고침하며 대기
+wait_open:
+  selector: "text=19:30"      # 원하는 회차 버튼
+  interval_sec: 60            # 최소 10초로 강제됨
+  # frame: "iframe#ticket"    # 예매 화면이 iframe 안에 있으면 지정
+
+steps:
+  - name: 회차 선택
+    action: click
+    selector: "text=19:30"
+  - name: 성인 2명
+    action: click
+    selector: "#adult >> text=2"
+  - name: 좌석 선택 (위에서부터 우선순위)
+    action: select_seats
+    selector: ".seat-map"             # 좌석 배치도가 뜰 때까지 대기
+    count: 2
+    unavailable_class: "sold"         # 매진 좌석에 붙는 클래스(있으면)
+    seats:
+      - "[data-seat='H10']"
+      - "[data-seat='H11']"
+      - "[data-seat='H12']"
+      - "[data-seat='G10']"
+      - "[data-seat='G11']"
+  - name: 결제하기 버튼
+    action: click
+    selector: "text=결제하기"
+
+# 이 셀렉터가 보이면 '결제창 도착'으로 판단하고 알림 후 멈춤
+payment_ready_selector: "text=결제수단"
